@@ -9,8 +9,8 @@ import {
 import type { CacheView } from './cache-art'
 
 // A band above the prompt in a warm dark look: card surface, cream text,
-// dot-matrix bars. Shows how much of each usage window is LEFT, 7-day first, then
-// 5-hour; 7D is orange, 5H is yellow; a window under 15% adds a bold LOW.
+// dot-matrix bars. Shows how much of each usage window is USED, 5-hour first, then
+// 7-day; 7D is orange, 5H is yellow; a window under 15% left adds a bold LOW.
 //
 // After the first reply it also shows the prompt cache: WARM (red, Robo bobbing)
 // for an hour after the last request, then COLD (blue, Robo frozen) with what the
@@ -29,7 +29,7 @@ const cache = atom({ plugin: 'ribbon', key: 'cache' } as const, null as CacheFac
 const fold = atom({ plugin: 'ribbon', key: 'fold' } as const, null as Fold | null)
 
 const NAMES: Record<string, string> = { seven_day: '7D', five_hour: '5H', spend_limit: 'SPEND' }
-const ORDER: Record<string, number> = { seven_day: 0, five_hour: 1 }
+const ORDER: Record<string, number> = { five_hour: 0, seven_day: 1 }
 const COLORS: Record<string, string> = { seven_day: ORANGE, five_hour: YELLOW }
 
 const clean = (list: readonly Window[]): Window[] =>
@@ -166,12 +166,14 @@ export const register: Register = on => {
     const cells = kind === 'tight' ? TIGHT_CELLS : CELLS
 
     const parts = (w: Window) => {
-      const left = Math.max(0, Math.round((100 - w.percentUsed) * 10) / 10)
+      const used = Math.max(0, Math.min(100, Math.round(w.percentUsed * 10) / 10))
+      const left = Math.round((100 - used) * 10) / 10
       return {
-        left,
+        used,
+        low: left < LOW_AT,
         col: COLORS[w.kind] ?? TEXT,
         name: NAMES[w.kind] ?? w.kind.toUpperCase(),
-        d: dots(left, cells),
+        d: dots(used, cells),
         reset: fmtReset(w.resetsAt, now),
       }
     }
@@ -182,11 +184,11 @@ export const register: Register = on => {
       const p = parts(w)
       return (
         <Box key={`w-${i}`} flexDirection="row" flexShrink={0} marginRight={3}>
-          <Text color={MUTED} bold>{p.name} </Text>
+          <Text color={MUTED} weight="bold">{p.name} </Text>
           <Text color={p.col}>{p.d.on}</Text>
           <Text color={EMPTY}>{p.d.off}</Text>
-          <Text color={p.col} bold> {p.left}% left</Text>
-          {p.left < LOW_AT ? <Text color={TEXT} bold> LOW</Text> : null}
+          <Text color={p.col} weight="bold"> {p.used}% used</Text>
+          {p.low ? <Text color={TEXT} weight="bold"> LOW</Text> : null}
           {p.reset ? <Text color={MUTED}> · {p.reset}</Text> : null}
         </Box>
       )
@@ -197,13 +199,13 @@ export const register: Register = on => {
       return (
         <Box key={`w-${i}`} flexDirection="column" flexShrink={0} marginRight={3}>
           <Box flexDirection="row">
-            <Text color={MUTED} bold>{p.name} </Text>
+            <Text color={MUTED} weight="bold">{p.name} </Text>
             <Text color={p.col}>{p.d.on}</Text>
             <Text color={EMPTY}>{p.d.off}</Text>
           </Box>
           <Box flexDirection="row">
-            <Text color={p.col} bold>{p.left}% left</Text>
-            {p.left < LOW_AT ? <Text color={TEXT} bold> LOW</Text> : null}
+            <Text color={p.col} weight="bold">{p.used}% used</Text>
+            {p.low ? <Text color={TEXT} weight="bold"> LOW</Text> : null}
           </Box>
           {p.reset ? <Text color={MUTED}>resets {p.reset}</Text> : null}
         </Box>
@@ -212,7 +214,7 @@ export const register: Register = on => {
 
     const label = (
       <Box key="label" flexShrink={0} marginRight={isWide ? 2 : 3}>
-        <Text color={TEXT} bold>USAGE</Text>
+        <Text color={TEXT} weight="bold">USAGE</Text>
       </Box>
     )
     const usage = list.length > 0
@@ -248,15 +250,15 @@ export const register: Register = on => {
             return <Svg key="chip" source={c.source} alt={WORD[mode]} width={c.w} height={c.h} />
           })(),
         ]
-      : [<Text key="chip" backgroundColor={hue} color={INK} bold>{` ${WORD[mode]} `}</Text>]
+      : [<Text key="chip" backgroundColor={hue} color={INK} weight="bold">{` ${WORD[mode]} `}</Text>]
 
     const summary = cold
       ? [
-          <Text key="idle" color={hue} bold>{` ${view.idle}`}</Text>,
+          <Text key="idle" color={hue} weight="bold">{` ${view.idle}`}</Text>,
           mine ? <Text key="dot" color={MUTED}> · </Text> : null,
-          mine ? <Text key="cost" color={TEXT} bold>{usd(costOf(mine, mode, view.tokens))}</Text> : null,
+          mine ? <Text key="cost" color={TEXT} weight="bold">{usd(costOf(mine, mode, view.tokens))}</Text> : null,
         ]
-      : [<Text key="left" color={hue} bold>{` ${Math.max(0, TTL_MIN - view.idleMin)}m left`}</Text>]
+      : [<Text key="left" color={hue} weight="bold">{` ${Math.max(0, TTL_MIN - view.idleMin)}m left`}</Text>]
 
     const button = Svg ? (
       <Box key="fold" flexShrink={0} alignItems="flex-start">
@@ -290,10 +292,10 @@ export const register: Register = on => {
           {open ? null : (
             <Box key="block" flexDirection="column" flexShrink={0} marginRight={2}>
               <Box flexDirection="row" alignItems="center">{badge}</Box>
-              <Text color={hue} bold>{cold ? `${view.idle} idle` : `${Math.max(0, TTL_MIN - view.idleMin)}m left`}</Text>
+              <Text color={hue} weight="bold">{cold ? `${view.idle} idle` : `${Math.max(0, TTL_MIN - view.idleMin)}m left`}</Text>
               {mine ? (
                 <Box flexDirection="row">
-                  <Text color={TEXT} bold>{usd(costOf(mine, mode, view.tokens))}</Text>
+                  <Text color={TEXT} weight="bold">{usd(costOf(mine, mode, view.tokens))}</Text>
                   <Text color={MUTED}> next</Text>
                 </Box>
               ) : null}
